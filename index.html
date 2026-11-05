@@ -1242,6 +1242,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       nonce = Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     }
     sessionSet('bd_google_nonce', nonce);
+    sessionSet('bd_google_return', '1');  /* after the Google round trip, land back inside the Desk — not on the entry screen */
     var redirectUri = window.location.origin + window.location.pathname;
     if (redirectUri.slice(-'index.html'.length) === 'index.html') redirectUri = redirectUri.slice(0, -'index.html'.length);
     if (redirectUri.charAt(redirectUri.length - 1) !== '/') redirectUri += '/';
@@ -1331,6 +1332,12 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     refreshHint();
   }
 
+  /* ---------- Enter the Desk (the one path the Enter button uses) ---------- */
+  function enterDesk(){
+    $('lockScreen').classList.add('hidden');
+    document.body.classList.remove('locked');
+  }
+
   /* ---------- Wire up ---------- */
   function init(){
     /* Sidebar + top strip (dark mode furniture) */
@@ -1351,6 +1358,16 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (activity.length) $('latestLine').textContent = activity[activity.length - 1].text;
     handleGoogleReturn();
 
+    /* Returning from the Google round trip: he left from inside the Desk,
+       so bring him straight back in — same Enter path as the button — and
+       reopen the Accounts sheet where he left off. Applies whether an
+       account was added or he came back without choosing one. */
+    if (sessionGet('bd_google_return')){
+      sessionRemove('bd_google_return');
+      enterDesk();
+      openAccounts();
+    }
+
     /* Back end: status pill + reply polling (no fetch at all while unconfigured). */
     checkBackend();
     if (backendOn()){
@@ -1358,10 +1375,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       setInterval(pollReplies, 20000);
     }
 
-    $('enterBtn').addEventListener('click', function(){
-      $('lockScreen').classList.add('hidden');
-      document.body.classList.remove('locked');
-    });
+    $('enterBtn').addEventListener('click', enterDesk);
 
     /* Detail sheet */
     $('dClose').addEventListener('click', closeDetail);
