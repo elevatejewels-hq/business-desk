@@ -76,6 +76,13 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .icon-btn{width:40px;height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--mut);}
   .icon-btn:hover{background:rgba(127,140,160,.15);}
 
+  /* ---------- Project tabs ---------- */
+  #projectTabs{max-width:1080px; margin:0 auto; display:flex; gap:8px; overflow-x:auto; padding:10px 16px 2px; scrollbar-width:none;}
+  #projectTabs::-webkit-scrollbar{display:none;}
+  .ptab{flex:0 0 auto; padding:8px 16px; border-radius:999px; border:1px solid var(--line); background:var(--surface); color:var(--ink-soft); font-size:14px; font-weight:500; box-shadow:var(--shadow-1);}
+  .ptab.active{background:var(--blue-soft); border-color:var(--blue); color:var(--blue);}
+  html[data-theme="dark"] .ptab.active{background:linear-gradient(90deg,#2563eb,#059669); color:#fff; border-color:transparent;}
+
   /* ---------- Cards grid ---------- */
   main{max-width:1080px; margin:0 auto; padding:8px 14px 240px;}
   .grid{display:grid; grid-template-columns:repeat(2,1fr); gap:14px;}
@@ -247,6 +254,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     </div>
   </header>
   <nav id="topStrip" aria-label="Desk menu"></nav>
+  <nav id="projectTabs" aria-label="Projects"></nav>
 
   <main>
     <section id="gridView">
@@ -283,7 +291,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 <div id="bottomBar">
   <div class="bar-inner">
     <div id="latestLine" title="Show activity">Business only — pick a browser number, or just type.</div>
-    <div id="hintLine">No number picked — Auto: first live browser</div>
+    <div id="hintLine">No number picked — Auto → first free browser</div>
     <div id="chips" role="group" aria-label="Choose browser"></div>
     <div class="bar-row">
       <div class="pill">
@@ -379,20 +387,50 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     { n:5, pct:0.3, state:'Empty',    icon:'person' },
     { n:6, pct:12,  state:'Quiet',    icon:'mic' }
   ];
-  var browsers = store.get('bd_browsers_v1');
-  if (!Array.isArray(browsers) || !browsers.length) browsers = DEFAULT_BROWSERS.slice();
-  var activity = store.get('bd_activity_v1');
-  if (!Array.isArray(activity)) activity = [];
+  /* ---------- Projects: one separate desk page per project ---------- */
+  var PROJECTS = [
+    { id:'general',    label:'General' },
+    { id:'elevate',    label:'Elevate Jewels' },
+    { id:'webflowai',  label:'WebFlowAI' },
+    { id:'vip',        label:'VIP Events' },
+    { id:'kosher',     label:'Kosher WhatsApp' },
+    { id:'fastgps',    label:'Fast GPS' },
+    { id:'fastsearch', label:'Fast Search' },
+    { id:'sing',       label:'Sing Together' },
+    { id:'buildtrust', label:'BUILDTRUST' }
+  ];
+  var currentProject = 'general';
+  var projSession = {};  /* per-project in-session state: { selected:{}, openChatN } */
+  /* General keeps the original storage keys; every other project gets its own key set. */
+  function pkey(base){ return currentProject === 'general' ? base : base + '_' + currentProject; }
+  function defaultBrowsers(){
+    return DEFAULT_BROWSERS.map(function(b){ return { n:b.n, pct:b.pct, state:b.state, icon:b.icon }; });
+  }
+  function loadProjectData(id){
+    currentProject = id;
+    var bs = store.get(pkey('bd_browsers_v1'));
+    browsers = (Array.isArray(bs) && bs.length) ? bs : defaultBrowsers();
+    var ac = store.get(pkey('bd_activity_v1'));
+    activity = Array.isArray(ac) ? ac : [];
+    var ch = store.get(pkey('bd_chats_v1'));
+    chats = (ch && typeof ch === 'object' && !Array.isArray(ch)) ? ch : {};
+    browsers.forEach(function(b){ if (!Array.isArray(chats[b.n])) chats[b.n] = [ seedChatEntry(b) ]; });
+    store.set(pkey('bd_chats_v1'), chats);
+    var sess = projSession[id] || { selected:{}, openChatN:null };
+    selected = sess.selected;
+    openChatN = sess.openChatN;
+    detailN = null;
+  }
+  var browsers = [];
+  var activity = [];
   var selected = {};           /* n -> true */
   var libItems = [];           /* session only: {url, kind, name} */
   var libTab = 'all';
   var detailN = null;
   var openChatN = null;        /* browser n whose in-card chat is open, or null */
-  var chats = store.get('bd_chats_v1');
-  if (!chats || typeof chats !== 'object' || Array.isArray(chats)) chats = {};
+  var chats = {};
   function seedChatEntry(b){ return { who:'him', text:'Browser ' + b.n + ' — ' + b.state + ' · ' + fmtPct(b.pct) + '%.', when: nowTime() }; }
-  browsers.forEach(function(b){ if (!Array.isArray(chats[b.n])) chats[b.n] = [ seedChatEntry(b) ]; });
-  store.set('bd_chats_v1', chats);
+
 
   /* ---------- Helpers ---------- */
   function $(id){ return document.getElementById(id); }
@@ -403,15 +441,44 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var t = $('toast'); t.textContent = msg; t.classList.add('show');
     clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2300);
   }
-  function saveBrowsers(){ store.set('bd_browsers_v1', browsers); }
-  function saveChats(){ store.set('bd_chats_v1', chats); }
-  function saveActivity(){ store.set('bd_activity_v1', activity.slice(-120)); }
+  function saveBrowsers(){ store.set(pkey('bd_browsers_v1'), browsers); }
+  function saveChats(){ store.set(pkey('bd_chats_v1'), chats); }
+  function saveActivity(){ store.set(pkey('bd_activity_v1'), activity.slice(-120)); }
   function selectedList(){ return browsers.filter(function(b){ return selected[b.n]; }).map(function(b){ return b.n; }); }
   function targetLabel(){
     var s = selectedList();
     if (!s.length) return 'Auto';
     if (s.length === 1) return 'Browser ' + s[0];
     return 'Browsers ' + s.join(', ');
+  }
+
+  /* ---------- Routing: where a send actually goes ---------- */
+  function autoTargetN(){
+    /* Auto = first FREE browser in this project — skip busy states (Working / Take over). */
+    for (var i = 0; i < browsers.length; i++){
+      if (browsers[i].state !== 'Working' && browsers[i].state !== 'Take over') return browsers[i].n;
+    }
+    return browsers.length ? browsers[0].n : null;
+  }
+  function deliverTargets(){
+    if (openChatN !== null) return [openChatN];
+    var s = selectedList();
+    if (s.length) return s;
+    var a = autoTargetN();
+    return a === null ? [] : [a];
+  }
+  function openFirstTargetChat(dests){
+    /* Make a send land visibly: if no chat is open, open the first target's chat. */
+    if (openChatN === null && dests.length){
+      openChatN = dests[0];
+      renderCards();
+    }
+  }
+  function hintText(){
+    var s = selectedList();
+    if (s.length) return 'Sending to: ' + targetLabel();
+    var a = autoTargetN();
+    return a === null ? 'No number picked — Auto' : 'No number picked — Auto → Browser ' + a + ' (free)';
   }
 
   /* ---------- Activity ---------- */
@@ -539,8 +606,34 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   function syncSelection(){
     openChatN = null;
     renderChips(); renderCards();
-    var s = selectedList();
-    $('hintLine').textContent = s.length ? ('Sending to: ' + targetLabel()) : 'No number picked — Auto: first live browser';
+    $('hintLine').textContent = hintText();
+  }
+
+  /* ---------- Project tabs ---------- */
+  function renderProjectTabs(){
+    var wrap = $('projectTabs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    PROJECTS.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ptab' + (p.id === currentProject ? ' active' : '');
+      b.textContent = p.label;
+      b.setAttribute('data-project', p.id);
+      b.addEventListener('click', function(){ switchProject(p.id); });
+      wrap.appendChild(b);
+    });
+  }
+  function switchProject(id){
+    if (id === currentProject){ renderProjectTabs(); return; }
+    /* Park this project's in-session selection / open chat, then load the next project's own data. */
+    projSession[currentProject] = { selected: selected, openChatN: openChatN };
+    closeDetail(); closeLibrary(); closeMenus();
+    loadProjectData(id);
+    renderProjectTabs(); renderCards(); renderChips(); renderActivity(); buildRequestOptions();
+    $('hintLine').textContent = hintText();
+    $('latestLine').textContent = activity.length ? activity[activity.length - 1].text : 'Business only — pick a browser number, or just type.';
+    window.scrollTo(0, 0);
   }
 
   /* ---------- Add a browser ---------- */
@@ -768,9 +861,11 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     blip(784, 0.11, 0.05);
     var secs = Math.max(0, Math.round((Date.now() - micStart) / 1000));
     var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
-    var vDest = openChatN !== null ? [openChatN] : selectedList();
+    var wasOpen = openChatN;
+    var vDest = deliverTargets();
     vDest.forEach(function(n){ pushChat(n, 'him', 'Voice note · ' + dur); });
-    logActivity('Voice note · ' + dur + ' — to ' + (openChatN !== null ? 'Browser ' + openChatN : targetLabel()) + '.');
+    logActivity('Voice note · ' + dur + ' — to ' + (wasOpen !== null ? 'Browser ' + wasOpen : targetLabel()) + '.');
+    openFirstTargetChat(vDest);
   }
 
   /* ---------- Send message ---------- */
@@ -778,9 +873,11 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var inp = $('msgInput');
     var text = inp.value.trim();
     if (!text) return;
-    var dests = openChatN !== null ? [openChatN] : selectedList();
+    var wasOpen = openChatN;
+    var dests = deliverTargets();
     dests.forEach(function(n){ pushChat(n, 'me', text); });
-    logActivity('To ' + (openChatN !== null ? 'Browser ' + openChatN : targetLabel()) + ': “' + text + '”');
+    logActivity('To ' + (wasOpen !== null ? 'Browser ' + wasOpen : targetLabel()) + ': “' + text + '”');
+    openFirstTargetChat(dests);
     inp.value = '';
     blip(1319, 0.07, 0.035);
   }
@@ -798,7 +895,10 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       el.addEventListener('click', function(){ doPlus(el.getAttribute('data-plus')); });
     });
 
+    loadProjectData('general');
+    renderProjectTabs();
     renderCards(); renderChips(); renderActivity(); applyThemeIcon();
+    $('hintLine').textContent = hintText();
     if (activity.length) $('latestLine').textContent = activity[activity.length - 1].text;
 
     $('enterBtn').addEventListener('click', function(){
