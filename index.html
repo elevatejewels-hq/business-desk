@@ -115,6 +115,11 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .card-num .material-symbols-outlined{font-size:19px;}
   .card-num .gdot{display:none; width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px rgba(47,211,95,.8);}
   html[data-theme="dark"] .card-num .gdot{display:inline-block;}
+  .unread{display:inline-flex; align-items:center; gap:2px; color:var(--mut);}
+  .unread .material-symbols-outlined{font-size:19px;}
+  .unread.has{color:var(--ink);}
+  .unread-count{font-size:12.5px; font-weight:700; line-height:1;}
+  .chat-empty{color:var(--mut); font-size:13px; text-align:center; padding:8px 4px;}
 
   /* ---------- In-card chat ---------- */
   .card.chat-open{background:#e8f0fe;}
@@ -317,7 +322,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 <div id="detailOverlay" class="overlay hidden">
   <div class="sheet full" role="dialog" aria-modal="true">
     <h2 id="dTitle">Browser 1</h2>
-    <p class="sub" id="dSub">Working · 23%</p>
+    <p class="sub" id="dSub">Empty · 0%</p>
     <div class="live-view">
       <span class="material-symbols-outlined">monitor</span>
       <div id="dLiveText">Live view — Browser 1</div>
@@ -380,12 +385,12 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   /* ---------- State ---------- */
   var ICONS = ['mic','videocam','person'];
   var DEFAULT_BROWSERS = [
-    { n:1, pct:23,  state:'Working',  icon:'mic' },
-    { n:2, pct:73,  state:'Live',     icon:'videocam' },
-    { n:3, pct:40,  state:'Take over',icon:'person' },
-    { n:4, pct:100, state:'Done',     icon:'mic' },
-    { n:5, pct:0.3, state:'Empty',    icon:'person' },
-    { n:6, pct:12,  state:'Quiet',    icon:'mic' }
+    { n:1, pct:0, state:'Empty', icon:'mic' },
+    { n:2, pct:0, state:'Empty', icon:'videocam' },
+    { n:3, pct:0, state:'Empty', icon:'person' },
+    { n:4, pct:0, state:'Empty', icon:'mic' },
+    { n:5, pct:0, state:'Empty', icon:'person' },
+    { n:6, pct:0, state:'Empty', icon:'mic' }
   ];
   /* ---------- Projects: one separate desk page per project ---------- */
   var PROJECTS = [
@@ -408,17 +413,23 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   }
   function loadProjectData(id){
     currentProject = id;
-    var bs = store.get(pkey('bd_browsers_v1'));
-    browsers = (Array.isArray(bs) && bs.length) ? bs : defaultBrowsers();
-    var ac = store.get(pkey('bd_activity_v1'));
+    var bs = store.get(pkey('bd_browsers_v2'));
+    /* Whatever was saved, a browser always starts clean: 0% (loading only), state Empty. */
+    browsers = (Array.isArray(bs) && bs.length)
+      ? bs.map(function(b){ return { n:b.n, pct:0, state:'Empty', icon:b.icon || 'mic' }; })
+      : defaultBrowsers();
+    var ac = store.get(pkey('bd_activity_v2'));
     activity = Array.isArray(ac) ? ac : [];
-    var ch = store.get(pkey('bd_chats_v1'));
+    var ch = store.get(pkey('bd_chats_v2'));
     chats = (ch && typeof ch === 'object' && !Array.isArray(ch)) ? ch : {};
-    browsers.forEach(function(b){ if (!Array.isArray(chats[b.n])) chats[b.n] = [ seedChatEntry(b) ]; });
-    store.set(pkey('bd_chats_v1'), chats);
+    browsers.forEach(function(b){ if (!Array.isArray(chats[b.n])) chats[b.n] = []; });
+    store.set(pkey('bd_chats_v2'), chats);
+    var un = store.get(pkey('bd_unread_v2'));
+    unread = (un && typeof un === 'object' && !Array.isArray(un)) ? un : {};
     var sess = projSession[id] || { selected:{}, openChatN:null };
     selected = sess.selected;
     openChatN = sess.openChatN;
+    openChatAuto = !!sess.openChatAuto;
     detailN = null;
   }
   var browsers = [];
@@ -428,8 +439,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   var libTab = 'all';
   var detailN = null;
   var openChatN = null;        /* browser n whose in-card chat is open, or null */
+  var openChatAuto = false;    /* true when the open chat was auto-opened by a send, false when the owner opened it with OPEN */
   var chats = {};
-  function seedChatEntry(b){ return { who:'him', text:'Browser ' + b.n + ' — ' + b.state + ' · ' + fmtPct(b.pct) + '%.', when: nowTime() }; }
+  var unread = {};             /* per browser n: { chat:count, media:count, last:'chat'|'media' } */
 
 
   /* ---------- Helpers ---------- */
@@ -441,9 +453,33 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var t = $('toast'); t.textContent = msg; t.classList.add('show');
     clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2300);
   }
-  function saveBrowsers(){ store.set(pkey('bd_browsers_v1'), browsers); }
-  function saveChats(){ store.set(pkey('bd_chats_v1'), chats); }
-  function saveActivity(){ store.set(pkey('bd_activity_v1'), activity.slice(-120)); }
+  function saveBrowsers(){
+    /* Persist identity only — percentage is loading-only and state starts Empty on every load. */
+    store.set(pkey('bd_browsers_v2'), browsers.map(function(b){ return { n:b.n, pct:0, state:'Empty', icon:b.icon }; }));
+  }
+  function saveChats(){ store.set(pkey('bd_chats_v2'), chats); }
+  function saveActivity(){ store.set(pkey('bd_activity_v2'), activity.slice(-120)); }
+  function saveUnread(){ store.set(pkey('bd_unread_v2'), unread); }
+  function findBrowser(n){ return browsers.filter(function(x){ return x.n === n; })[0] || null; }
+  function stateLabel(b){ return b.loading ? 'Loading' : b.state; }
+  function unreadOf(n){
+    var u = unread[n];
+    return (u && typeof u === 'object') ? u : { chat:0, media:0, last:'chat' };
+  }
+  function bumpUnread(n, kind, k){
+    var u = unreadOf(n);
+    u[kind] = (u[kind] || 0) + k;
+    u.last = kind;
+    unread[n] = u;
+    saveUnread();
+  }
+  function markRead(n){
+    var u = unread[n];
+    if (u && (u.chat || u.media)){
+      unread[n] = { chat:0, media:0, last:'chat' };
+      saveUnread();
+    }
+  }
   function selectedList(){ return browsers.filter(function(b){ return selected[b.n]; }).map(function(b){ return b.n; }); }
   function targetLabel(){
     var s = selectedList();
@@ -454,31 +490,59 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 
   /* ---------- Routing: where a send actually goes ---------- */
   function autoTargetN(){
-    /* Auto = first FREE browser in this project — skip busy states (Working / Take over). */
+    /* Auto = first FREE browser in this project — "busy" now means currently loading a send. */
     for (var i = 0; i < browsers.length; i++){
-      if (browsers[i].state !== 'Working' && browsers[i].state !== 'Take over') return browsers[i].n;
+      if (!browsers[i].loading) return browsers[i].n;
     }
     return browsers.length ? browsers[0].n : null;
   }
   function deliverTargets(){
-    if (openChatN !== null) return [openChatN];
+    /* Priority: (1) selected chips — exact routing, always.
+       (2) A chat the owner MANUALLY opened keeps his sends (conversation
+           context) — unless that browser is currently loading, in which
+           case Auto takes over for this send.
+       (3) Auto — first non-loading browser. A chat that is open only
+           because a send auto-opened it never captures a later send. */
     var s = selectedList();
     if (s.length) return s;
+    if (openChatN !== null && !openChatAuto){
+      var ob = findBrowser(openChatN);
+      if (ob && !ob.loading) return [openChatN];
+    }
     var a = autoTargetN();
     return a === null ? [] : [a];
   }
   function openFirstTargetChat(dests){
-    /* Make a send land visibly: if no chat is open, open the first target's chat. */
-    if (openChatN === null && dests.length){
+    /* Make a send land visibly: if no chat is open, auto-open the first
+       target's chat. If the open chat is itself an auto-opened one, follow
+       the send and switch to the browser this send actually went to. A
+       manually opened chat is the owner's chosen view — never moved. */
+    if (!dests.length) return;
+    if (openChatN === null){
       openChatN = dests[0];
+      openChatAuto = true;
+      markRead(dests[0]);
+      renderCards();
+    } else if (openChatAuto && openChatN !== dests[0]){
+      openChatN = dests[0];
+      markRead(dests[0]);
       renderCards();
     }
+  }
+  function destsLabel(dests){
+    if (!dests.length) return targetLabel();
+    if (dests.length === 1) return 'Browser ' + dests[0];
+    return 'Browsers ' + dests.join(', ');
   }
   function hintText(){
     var s = selectedList();
     if (s.length) return 'Sending to: ' + targetLabel();
     var a = autoTargetN();
     return a === null ? 'No number picked — Auto' : 'No number picked — Auto → Browser ' + a + ' (free)';
+  }
+  function refreshHint(){
+    var h = $('hintLine');
+    if (h) h.textContent = hintText();
   }
 
   /* ---------- Activity ---------- */
@@ -500,22 +564,22 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 
   /* ---------- Cards ---------- */
   function cardHTML(b){
-    var extras = '';
-    if (b.n === 3){
-      extras = '<span class="takeover-pill">take over</span>' +
-               '<div class="post-row">POST<span class="material-symbols-outlined">expand_more</span></div>';
-    }
-    var done = (b.state === 'Done' || b.pct >= 100) ? '<div class="done-label">DONE</div>' : '';
+    var u = unreadOf(b.n);
+    var total = (u.chat || 0) + (u.media || 0);
+    var kind = (total > 0 && u.last === 'media') ? 'media' : 'chat';
+    var unreadHTML = '<span class="unread' + (total > 0 ? ' has' : '') + '" data-unread="' + b.n + '" data-count="' + total + '" data-kind="' + kind + '" title="' + (total > 0 ? (total + ' unread in Browser ' + b.n) : 'No unread') + '">' +
+      '<span class="material-symbols-outlined">' + (kind === 'media' ? 'image' : 'chat_bubble') + '</span>' +
+      (total > 0 ? '<span class="unread-count">' + total + '</span>' : '') + '</span>';
     return '' +
     '<div class="live-pill" data-live="' + b.n + '" role="button" title="Open the big take-over view"><span class="dot"></span><span>Live:</span><span>Open to see</span></div>' +
-    '<div class="pct">' + fmtPct(b.pct) + '</div>' + done + extras +
-    '<div class="state-word">' + esc(b.state) + '</div>' +
+    '<div class="pct">' + fmtPct(b.pct) + '</div>' +
+    '<div class="state-word">' + esc(stateLabel(b)) + '</div>' +
     '<div class="track"><div class="fill" style="width:' + Math.min(100, Math.max(0, b.pct)) + '%"></div>' +
     '<div class="knob" style="left:' + Math.min(100, Math.max(0, b.pct)) + '%"></div></div>' +
     chatHTML(b) +
     '<div class="card-foot">' +
       '<button class="open-btn" type="button" data-open="' + b.n + '">Open</button>' +
-      '<span class="card-num">' + b.n + ' <span class="material-symbols-outlined">' + b.icon + '</span><span class="gdot"></span></span>' +
+      '<span class="card-num">' + b.n + ' <span class="material-symbols-outlined">' + b.icon + '</span>' + unreadHTML + '<span class="gdot"></span></span>' +
     '</div>';
   }
   function chatHTML(b){
@@ -525,7 +589,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
         '<span class="who">' + (m.who === 'me' ? 'from me' : 'from him') + '</span>' +
         '<span class="bubble">' + esc(m.text) + '</span></div>';
     }).join('');
-    if (!msgs) msgs = '<div class="msg him"><span class="who">from him</span><span class="bubble">No messages yet for Browser ' + b.n + '.</span></div>';
+    if (!msgs) msgs = '<div class="chat-empty">No messages yet — this chat starts empty.</div>';
     return '<div class="card-chat">' +
       '<div class="chat-top"><span class="chat-title">Browser ' + b.n + ' chat</span>' +
       '<button class="chat-takeover" type="button" data-takeover="' + b.n + '">Take over</button></div>' +
@@ -536,16 +600,21 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     chats[n].push({ who: who, text: text, when: nowTime() });
     if (chats[n].length > 200) chats[n] = chats[n].slice(-200);
     saveChats();
-    if (openChatN === n) renderCards();
+    /* A browser-side message landing while that browser's chat is closed becomes unread. */
+    if (who === 'him' && openChatN !== n) bumpUnread(n, 'chat', 1);
+    renderCards();
   }
   function toggleChat(n){
     if (openChatN === n){ closeChat(); return; }
     openChatN = n;
+    openChatAuto = false;   /* the owner opened this chat himself — it is his conversation context */
+    markRead(n);
     renderCards();
   }
   function closeChat(){
     if (openChatN === null) return;
     openChatN = null;
+    openChatAuto = false;
     renderCards();
   }
   function renderCards(){
@@ -605,6 +674,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   }
   function syncSelection(){
     openChatN = null;
+    openChatAuto = false;
     renderChips(); renderCards();
     $('hintLine').textContent = hintText();
   }
@@ -626,8 +696,13 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   }
   function switchProject(id){
     if (id === currentProject){ renderProjectTabs(); return; }
+    /* Stop any in-flight loading on the outgoing page — its reply must never land in another project. */
+    browsers.forEach(function(b){
+      if (b._timer){ clearInterval(b._timer); b._timer = null; }
+      b.loading = false; b.pct = 0;
+    });
     /* Park this project's in-session selection / open chat, then load the next project's own data. */
-    projSession[currentProject] = { selected: selected, openChatN: openChatN };
+    projSession[currentProject] = { selected: selected, openChatN: openChatN, openChatAuto: openChatAuto };
     closeDetail(); closeLibrary(); closeMenus();
     loadProjectData(id);
     renderProjectTabs(); renderCards(); renderChips(); renderActivity(); buildRequestOptions();
@@ -641,7 +716,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var next = browsers.reduce(function(m, b){ return Math.max(m, b.n); }, 0) + 1;
     var b = { n: next, pct: 0, state: 'Empty', icon: ICONS[(next - 1) % ICONS.length] };
     browsers.push(b); saveBrowsers();
-    chats[next] = [ seedChatEntry(b) ]; saveChats();
+    chats[next] = []; saveChats();
     renderCards(); renderChips(); buildRequestOptions();
     logActivity('Browser ' + next + ' added — Empty, ready when you are.');
     toast('Browser ' + next + ' added');
@@ -654,7 +729,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (!b) return;
     detailN = n;
     $('dTitle').textContent = 'Browser ' + b.n;
-    $('dSub').textContent = b.state + ' · ' + fmtPct(b.pct);
+    $('dSub').textContent = stateLabel(b) + ' · ' + fmtPct(b.pct);
     $('dLiveText').textContent = 'Live view — Browser ' + b.n;
     $('detailOverlay').classList.remove('hidden');
   }
@@ -667,7 +742,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     sel.innerHTML = '<option value="fresh">A fresh empty browser</option>';
     browsers.forEach(function(b){
       var o = document.createElement('option');
-      o.value = b.n; o.textContent = 'Browser ' + b.n + ' (' + b.state + ')';
+      o.value = b.n; o.textContent = 'Browser ' + b.n + ' (' + stateLabel(b) + ')';
       sel.appendChild(o);
     });
     sel.value = cur || 'fresh';
@@ -701,15 +776,25 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   }
   function handleFiles(fileList){
     var added = 0;
+    var names = [];
     Array.prototype.forEach.call(fileList, function(f){
       var kind = f.type.indexOf('video') === 0 ? 'video' : 'image';
       libItems.push({ url: URL.createObjectURL(f), kind: kind, name: f.name || 'Untitled' });
+      names.push(f.name || 'Untitled');
       added++;
     });
     if (added){
       renderLibrary();
       toast(added === 1 ? 'Saved to your Library' : added + ' files saved to your Library');
       logActivity(added + (added === 1 ? ' file' : ' files') + ' added to the Library.');
+      /* The files also land in the target browser's chat; while that chat stays closed they wait as unread media. */
+      var dests = deliverTargets();
+      var label = added === 1 ? ('Sent a file: ' + names[0]) : ('Sent ' + added + ' files: ' + names.join(', '));
+      dests.forEach(function(n){
+        pushChat(n, 'me', label);
+        if (openChatN !== n) bumpUnread(n, 'media', added);
+      });
+      if (dests.length) renderCards();
     }
   }
 
@@ -861,11 +946,50 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     blip(784, 0.11, 0.05);
     var secs = Math.max(0, Math.round((Date.now() - micStart) / 1000));
     var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
-    var wasOpen = openChatN;
     var vDest = deliverTargets();
     vDest.forEach(function(n){ pushChat(n, 'me', 'Voice note · ' + dur); });
-    logActivity('Voice note · ' + dur + ' — to ' + (wasOpen !== null ? 'Browser ' + wasOpen : targetLabel()) + '.');
+    logActivity('Voice note · ' + dur + ' — to ' + destsLabel(vDest) + '.');
     openFirstTargetChat(vDest);
+    startLoadingFor(vDest);
+    refreshHint();
+  }
+
+  /* ---------- Loading: the percentage is a send filling until the reply lands ---------- */
+  var REPLIES = ['Got it — on it.', 'Received — working on it now.', 'Got it — leave it with me.'];
+  var replyCount = 0;
+  function updateCardProgress(b){
+    var card = $('cardsGrid').querySelector('[data-n="' + b.n + '"]');
+    if (!card) return;
+    var pctEl = card.querySelector('.pct'); if (pctEl) pctEl.textContent = fmtPct(b.pct);
+    var fill = card.querySelector('.track .fill'); if (fill) fill.style.width = Math.min(100, Math.max(0, b.pct)) + '%';
+    var knob = card.querySelector('.track .knob'); if (knob) knob.style.left = Math.min(100, Math.max(0, b.pct)) + '%';
+    var sw = card.querySelector('.state-word'); if (sw) sw.textContent = stateLabel(b);
+  }
+  function startLoading(b){
+    if (b._timer){ clearInterval(b._timer); b._timer = null; }
+    b.loading = true; b.pct = 0;
+    renderCards();
+    refreshHint();   /* a browser just became busy — the Auto target may have moved */
+    var dur = 1200 + Math.random() * 900;
+    var t0 = Date.now();
+    b._timer = setInterval(function(){
+      var p = (Date.now() - t0) / dur;
+      if (p >= 1){ finishLoading(b); return; }
+      b.pct = Math.floor(p * 100);
+      updateCardProgress(b);
+    }, 50);
+  }
+  function finishLoading(b){
+    if (b._timer){ clearInterval(b._timer); b._timer = null; }
+    b.loading = false; b.pct = 0;
+    if (browsers.indexOf(b) === -1){ renderCards(); refreshHint(); return; }  /* page switched mid-load: the reply is dropped, never lands in another project */
+    pushChat(b.n, 'him', REPLIES[replyCount++ % REPLIES.length]);
+    if (detailN === b.n) openDetail(b.n);
+    renderCards();
+    refreshHint();   /* this browser is free again — the Auto target may have moved back */
+  }
+  function startLoadingFor(dests){
+    dests.forEach(function(n){ var b = findBrowser(n); if (b) startLoading(b); });
   }
 
   /* ---------- Send message ---------- */
@@ -873,13 +997,14 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var inp = $('msgInput');
     var text = inp.value.trim();
     if (!text) return;
-    var wasOpen = openChatN;
     var dests = deliverTargets();
     dests.forEach(function(n){ pushChat(n, 'me', text); });
-    logActivity('To ' + (wasOpen !== null ? 'Browser ' + wasOpen : targetLabel()) + ': “' + text + '”');
+    logActivity('To ' + destsLabel(dests) + ': “' + text + '”');
     openFirstTargetChat(dests);
+    startLoadingFor(dests);
     inp.value = '';
     blip(1319, 0.07, 0.035);
+    refreshHint();
   }
 
   /* ---------- Wire up ---------- */
