@@ -84,7 +84,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   html[data-theme="dark"] .card{border:1px solid transparent; background:linear-gradient(#0c1430,#0c1430) padding-box, linear-gradient(135deg,#22d3ee,#34a853 55%,#a855f7) border-box; box-shadow:0 4px 18px rgba(0,0,0,.55);}
   .card.selected{background:var(--sel-tint); box-shadow:0 0 0 2px var(--sel-ring), 0 0 22px var(--sel-ring), var(--shadow-2);}
   html[data-theme="dark"] .card.selected{background:linear-gradient(#12234d,#12234d) padding-box, linear-gradient(135deg,#22d3ee,#34a853 55%,#a855f7) border-box; box-shadow:0 0 0 2px var(--sel-ring), 0 0 26px var(--sel-ring);}
-  .live-pill{align-self:flex-end; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--surface); border-radius:9px; padding:4px 9px; font-size:10.5px; font-weight:500; letter-spacing:.06em; color:var(--mut); text-transform:uppercase; max-width:100%;}
+  .live-pill{align-self:flex-end; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--surface); border-radius:9px; padding:4px 9px; font-size:10.5px; font-weight:500; letter-spacing:.06em; color:var(--mut); text-transform:uppercase; max-width:100%; cursor:pointer;}
   .live-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--red); flex:0 0 auto; animation:pulse 1.6s infinite;}
   @keyframes pulse{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}
   html[data-theme="dark"] .live-pill{flex-direction:column; align-items:flex-end; gap:0; line-height:1.25; text-transform:lowercase; background:#0a1128; border-color:#22305c; color:#aebadd;}
@@ -173,6 +173,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   #micBtn .material-symbols-outlined{font-size:28px;}
   #micBtn.listening{background:#7db8f7; transform:scale(.9); box-shadow:0 0 0 6px rgba(125,184,247,.35), var(--shadow-2);}
   html[data-theme="dark"] #micBtn.listening{background:#7db8f7;}
+  .wave{display:flex; align-items:center; gap:2.5px; height:36px; padding:0 5px; flex:0 0 auto;}
+  .wave .wbar{width:3px; border-radius:2px; background:var(--blue); height:6px; transition:height .13s ease;}
+  html[data-theme="dark"] .wave .wbar{background:#5aa2f0;}
 
   /* ---------- Menus, sheets, panel, toast ---------- */
   .menu{position:fixed; z-index:90; background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-3); padding:6px; min-width:212px;}
@@ -286,6 +289,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       <div class="pill">
         <button class="bar-btn" id="plusBtn" type="button" aria-label="Menu"><span class="material-symbols-outlined">add</span></button>
         <input id="msgInput" type="text" placeholder="Type a message..." autocomplete="off">
+        <div id="wave" class="wave hidden" aria-hidden="true"></div>
         <button class="bar-btn" id="cameraBtn" type="button" aria-label="Attach"><span class="material-symbols-outlined">photo_camera</span></button>
       </div>
       <button id="micBtn" type="button" aria-label="Hold to talk"><span class="material-symbols-outlined">mic</span></button>
@@ -310,6 +314,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       <span class="material-symbols-outlined">monitor</span>
       <div id="dLiveText">Live view — Browser 1</div>
       <div style="font-size:12.5px;">A plain placeholder area. No people, ever.</div>
+      <div style="font-size:12.5px;">Live view stays clean — no images of people.</div>
     </div>
     <div class="sheet-actions">
       <button class="btn primary big" id="dTakeOver" type="button">Take over</button>
@@ -435,7 +440,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     }
     var done = (b.state === 'Done' || b.pct >= 100) ? '<div class="done-label">DONE</div>' : '';
     return '' +
-    '<div class="live-pill"><span class="dot"></span><span>Live:</span><span>Open to see</span></div>' +
+    '<div class="live-pill" data-live="' + b.n + '" role="button" title="Open the big take-over view"><span class="dot"></span><span>Live:</span><span>Open to see</span></div>' +
     '<div class="pct">' + fmtPct(b.pct) + '</div>' + done + extras +
     '<div class="state-word">' + esc(b.state) + '</div>' +
     '<div class="track"><div class="fill" style="width:' + Math.min(100, Math.max(0, b.pct)) + '%"></div>' +
@@ -485,6 +490,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       el.setAttribute('data-n', b.n);
       el.innerHTML = cardHTML(b);
       el.addEventListener('click', function(e){
+        if (e.target.closest('[data-live]')){ openDetail(b.n); return; }
         if (e.target.closest('[data-open]')){ toggleChat(b.n); return; }
         if (e.target.closest('[data-takeover]')){ openDetail(b.n); return; }
         if (openChatN !== null && openChatN !== b.n) closeChat();
@@ -713,18 +719,51 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 
   /* ---------- Mic: press and hold ---------- */
   var micStart = 0, micHeld = false;
+  var waveTimer = null;
+  function waveStart(){
+    var w = $('wave');
+    if (!w) return;
+    if (!w.children.length){
+      for (var i = 0; i < 16; i++){
+        var s = document.createElement('span');
+        s.className = 'wbar'; s.style.height = '6px';
+        w.appendChild(s);
+      }
+    }
+    w.classList.remove('hidden');
+    var bars = w.children;
+    function setH(h){ for (var i = 0; i < bars.length; i++) bars[i].style.height = h[i] + 'px'; }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      setH([8,14,20,12,24,16,9,22,15,26,11,19,13,21,10,16]);
+      return;
+    }
+    function tick(){
+      var h = [];
+      for (var i = 0; i < bars.length; i++) h.push(4 + Math.round(Math.random() * 24));
+      setH(h);
+    }
+    tick();
+    waveTimer = setInterval(tick, 120);
+  }
+  function waveStop(){
+    if (waveTimer){ clearInterval(waveTimer); waveTimer = null; }
+    var w = $('wave');
+    if (w) w.classList.add('hidden');
+  }
   function micDown(e){
     e.preventDefault();
     if (micHeld) return;
     micHeld = true; micStart = Date.now();
     $('micBtn').classList.add('listening');
     $('msgInput').setAttribute('placeholder', 'Listening…');
+    waveStart();
     blip(1175, 0.09, 0.05);
   }
   function micUp(){
     if (!micHeld) return;
     micHeld = false;
     $('micBtn').classList.remove('listening');
+    waveStop();
     $('msgInput').setAttribute('placeholder', 'Type a message...');
     blip(784, 0.11, 0.05);
     var secs = Math.max(0, Math.round((Date.now() - micStart) / 1000));
