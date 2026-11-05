@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 /* Apply saved theme before first paint */
 try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -83,6 +84,8 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .acct-add input{flex:1 1 auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); font-family:inherit; font-size:15px; padding:10px 12px; outline:none; min-width:0;}
   .acct-add input:focus{border-color:var(--blue);}
   .acct-h{font-size:13px; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--mut); margin:18px 0 2px;}
+  #googleBtnSlot{margin:6px 0 4px;}
+  .google-status{font-size:13.5px; color:var(--mut); margin:2px 0 10px;}
   .top-actions{margin-left:auto; display:flex; gap:4px;}
   .icon-btn{width:40px;height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--mut);}
   .icon-btn:hover{background:rgba(127,140,160,.15);}
@@ -381,7 +384,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 <div id="accountsOverlay" class="overlay hidden">
   <div class="sheet" role="dialog" aria-modal="true">
     <h2>Google accounts</h2>
-    <p class="sub">Real Google sign-ins are connected with Muse — here you label accounts and choose which browser uses which.</p>
+    <p class="sub">Real Google sign-ins are connected with Muse — here you label accounts and choose which browser uses which. Google confirms which account it is; reading or sending mail is connected with Muse, not here.</p>
+    <div id="googleBtnSlot"></div>
+    <div id="googleStatus" class="google-status"></div>
     <div id="acctList"></div>
     <div class="acct-add">
       <input id="acctInput" type="text" placeholder="Account label or email" autocomplete="off">
@@ -409,6 +414,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   /* ---------- Back-end connection (empty = not connected yet) ---------- */
   var BACKEND_URL = '';
   var BACKEND_KEY = '';
+
+  /* ---------- Google sign-in (empty client ID = not set up yet) ---------- */
+  var GOOGLE_CLIENT_ID = '654104407813-go3usvamcqgivo6d7vea7lgkono5ic4b.apps.googleusercontent.com';
 
   /* ---------- Safe storage ---------- */
   var store = {
@@ -602,8 +610,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var u = unreadOf(b.n);
     var total = (u.chat || 0) + (u.media || 0);
     var kind = (total > 0 && u.last === 'media') ? 'media' : 'chat';
-    var acctLbl = accountLabelFor(b.n);
-    var acctBadge = acctLbl ? '<span class="acct-badge" title="' + esc(acctLbl) + '">' + esc(acctLbl.charAt(0).toUpperCase()) + '</span>' : '';
+    var acctObj = accountForBrowser(b.n);
+    var acctLbl = acctObj ? acctObj.label : '';
+    var acctBadge = acctObj ? '<span class="acct-badge" title="' + esc(acctLbl) + '">' + esc(accountBadgeLetter(acctObj)) + '</span>' : '';
     var unreadHTML = '<span class="unread' + (total > 0 ? ' has' : '') + '" data-unread="' + b.n + '" data-count="' + total + '" data-kind="' + kind + '" title="' + (total > 0 ? (total + ' unread in Browser ' + b.n) : 'No unread') + '">' +
       '<span class="material-symbols-outlined">' + (kind === 'media' ? 'image' : 'chat_bubble') + '</span>' +
       (total > 0 ? '<span class="unread-count">' + total + '</span>' : '') + '</span>';
@@ -1098,11 +1107,19 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var pa = accountsData().assign[project];
     return (pa && pa[n]) || '';
   }
-  function accountLabelFor(n){
+  function accountForBrowser(n){
     var id = assignedAccountId(currentProject, n);
-    if (!id) return '';
-    var found = accountsData().accounts.filter(function(a){ return a.id === id; })[0];
+    if (!id) return null;
+    return accountsData().accounts.filter(function(a){ return a.id === id; })[0] || null;
+  }
+  function accountLabelFor(n){
+    var found = accountForBrowser(n);
     return found ? found.label : '';
+  }
+  function accountBadgeLetter(a){
+    if (!a) return '';
+    var src = (a.name && String(a.name).trim()) ? String(a.name).trim() : (a.label || '');
+    return src ? src.charAt(0).toUpperCase() : '';
   }
   function acctSuffix(dests){
     var labels = [];
@@ -1112,13 +1129,13 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     });
     return labels.length ? ' · ' + labels.join(', ') : '';
   }
-  function openAccounts(){ renderAccounts(); $('accountsOverlay').classList.remove('hidden'); }
+  function openAccounts(){ renderAccounts(); $('accountsOverlay').classList.remove('hidden'); initGoogleAccounts(); }
   function closeAccounts(){ $('accountsOverlay').classList.add('hidden'); }
   function renderAccounts(){
     var d = accountsData();
     var list = $('acctList');
     list.innerHTML = d.accounts.length ? d.accounts.map(function(a){
-      return '<div class="acct-row"><span class="acct-badge">' + esc(a.label.charAt(0).toUpperCase()) + '</span>' +
+      return '<div class="acct-row"><span class="acct-badge">' + esc(accountBadgeLetter(a)) + '</span>' +
         '<span class="acct-name">' + esc(a.label) + '</span>' +
         '<button class="btn" type="button" data-acct-remove="' + esc(a.id) + '">Remove</button></div>';
     }).join('') : '<div class="act-empty">No accounts yet — add one below.</div>';
@@ -1166,6 +1183,59 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     else delete d.assign[currentProject][n];
     saveAccountsData(d);
     renderCards();
+  }
+
+  /* ---------- Real Google sign-in (Identity Services) ---------- */
+  var googleInited = false;
+  function initGoogleAccounts(){
+    var status = $('googleStatus');
+    var slot = $('googleBtnSlot');
+    if (!status || !slot) return;
+    if (!GOOGLE_CLIENT_ID){
+      status.textContent = 'Google sign-in is not set up yet — you can add a label below for now.';
+      return;
+    }
+    if (!(window.google && google.accounts && google.accounts.id)){
+      status.textContent = 'Google sign-in is still loading — close and reopen this sheet in a moment.';
+      return;
+    }
+    if (googleInited) return;
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onGoogleCredential });
+    google.accounts.id.renderButton(slot, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill' });
+    googleInited = true;
+    status.textContent = '';
+  }
+  /* The credential token is used for display/assignment only (name/email for the
+     badge and the back-end payload) — never as proof of access. Mail access is
+     connected separately with Muse, not proven here. */
+  function onGoogleCredential(response){
+    var status = $('googleStatus');
+    try {
+      var part = String(response && response.credential || '').split('.')[1];
+      if (!part) throw new Error('no credential');
+      var b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      var payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(b64), function(c){
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('')));
+      var email = String(payload.email || '');
+      if (!email) throw new Error('no email');
+      var d = accountsData();
+      var existing = null;
+      d.accounts.forEach(function(a){ if (a.label === email) existing = a; });
+      if (existing){
+        existing.id = 'g:' + String(payload.sub || '');
+        existing.name = String(payload.name || existing.name || '');
+      } else {
+        d.accounts.push({ id: 'g:' + String(payload.sub || ''), label: email, name: String(payload.name || '') });
+      }
+      saveAccountsData(d);
+      renderAccounts();
+      renderCards();
+      if (status) status.textContent = 'Added ' + email;
+    } catch (e) {
+      if (status) status.textContent = "That Google sign-in didn't come through — try again.";
+    }
   }
 
   /* ---------- Loading: the percentage is a send filling until the reply lands ---------- */
