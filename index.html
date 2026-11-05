@@ -863,7 +863,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
     var wasOpen = openChatN;
     var vDest = deliverTargets();
-    vDest.forEach(function(n){ pushChat(n, 'him', 'Voice note · ' + dur); });
+    vDest.forEach(function(n){ pushChat(n, 'me', 'Voice note · ' + dur); });
     logActivity('Voice note · ' + dur + ' — to ' + (wasOpen !== null ? 'Browser ' + wasOpen : targetLabel()) + '.');
     openFirstTargetChat(vDest);
   }
