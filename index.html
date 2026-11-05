@@ -72,6 +72,17 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   header.topbar{max-width:1080px; margin:0 auto; padding:16px 16px 4px; display:flex; align-items:center; gap:10px;}
   header.topbar h1{font-size:20px; font-weight:500; margin:0;}
   .badge{font-size:11.5px; font-weight:500; color:var(--blue); background:var(--blue-soft); border-radius:999px; padding:4px 10px; white-space:nowrap;}
+  .backend-pill{font-size:11.5px; font-weight:500; color:var(--mut); background:rgba(127,140,160,.16); border-radius:999px; padding:4px 10px; white-space:nowrap;}
+  .backend-pill.ok{color:var(--green); background:rgba(52,168,83,.15);}
+  .backend-pill.bad{color:var(--red); background:rgba(234,67,53,.13);}
+  .acct-badge{display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:var(--blue); color:#fff; font-size:11px; font-weight:700; text-transform:uppercase; flex:0 0 auto;}
+  .acct-row{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line);}
+  .acct-row .acct-name{flex:1 1 auto; font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .acct-row select{border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); font-family:inherit; font-size:14px; padding:8px 10px; max-width:55%;}
+  .acct-add{display:flex; gap:10px; margin:14px 0 6px;}
+  .acct-add input{flex:1 1 auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); font-family:inherit; font-size:15px; padding:10px 12px; outline:none; min-width:0;}
+  .acct-add input:focus{border-color:var(--blue);}
+  .acct-h{font-size:13px; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--mut); margin:18px 0 2px;}
   .top-actions{margin-left:auto; display:flex; gap:4px;}
   .icon-btn{width:40px;height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--mut);}
   .icon-btn:hover{background:rgba(127,140,160,.15);}
@@ -253,6 +264,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   <header class="topbar">
     <h1>Business Desk</h1>
     <span class="badge">BUSINESS ONLY</span>
+    <span class="backend-pill" id="backendStatus">Back end: not connected</span>
     <div class="top-actions">
       <button class="icon-btn" id="activityBtn" type="button" title="Activity" aria-label="Activity"><span class="material-symbols-outlined">history</span></button>
       <button class="icon-btn" id="themeBtn" type="button" title="Dark mode" aria-label="Toggle dark mode"><span class="material-symbols-outlined" id="themeIcon">dark_mode</span></button>
@@ -330,6 +342,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       <div style="font-size:12.5px;">Live view stays clean — no images of people.</div>
     </div>
     <div class="sheet-actions">
+      <a class="btn hidden" id="dLiveLink" href="#" target="_blank" rel="noopener">Open live session</a>
       <button class="btn primary big" id="dTakeOver" type="button">Take over</button>
       <button class="btn" id="dPost" type="button">Post</button>
       <button class="btn" id="dClose" type="button">Close</button>
@@ -364,6 +377,24 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   </div>
 </div>
 
+<!-- ================= ACCOUNTS SHEET ================= -->
+<div id="accountsOverlay" class="overlay hidden">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Google accounts</h2>
+    <p class="sub">Real Google sign-ins are connected with Muse — here you label accounts and choose which browser uses which.</p>
+    <div id="acctList"></div>
+    <div class="acct-add">
+      <input id="acctInput" type="text" placeholder="Account label or email" autocomplete="off">
+      <button class="btn primary" id="acctAddBtn" type="button">Add account</button>
+    </div>
+    <div class="acct-h">Browsers on this page</div>
+    <div id="acctAssign"></div>
+    <div class="sheet-actions">
+      <button class="btn" id="acctClose" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" role="status"></div>
 
 <!-- Hidden real file pickers -->
@@ -374,6 +405,10 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 <script>
 (function(){
   'use strict';
+
+  /* ---------- Back-end connection (empty = not connected yet) ---------- */
+  var BACKEND_URL = '';
+  var BACKEND_KEY = '';
 
   /* ---------- Safe storage ---------- */
   var store = {
@@ -567,6 +602,8 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var u = unreadOf(b.n);
     var total = (u.chat || 0) + (u.media || 0);
     var kind = (total > 0 && u.last === 'media') ? 'media' : 'chat';
+    var acctLbl = accountLabelFor(b.n);
+    var acctBadge = acctLbl ? '<span class="acct-badge" title="' + esc(acctLbl) + '">' + esc(acctLbl.charAt(0).toUpperCase()) + '</span>' : '';
     var unreadHTML = '<span class="unread' + (total > 0 ? ' has' : '') + '" data-unread="' + b.n + '" data-count="' + total + '" data-kind="' + kind + '" title="' + (total > 0 ? (total + ' unread in Browser ' + b.n) : 'No unread') + '">' +
       '<span class="material-symbols-outlined">' + (kind === 'media' ? 'image' : 'chat_bubble') + '</span>' +
       (total > 0 ? '<span class="unread-count">' + total + '</span>' : '') + '</span>';
@@ -579,7 +616,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     chatHTML(b) +
     '<div class="card-foot">' +
       '<button class="open-btn" type="button" data-open="' + b.n + '">Open</button>' +
-      '<span class="card-num">' + b.n + ' <span class="material-symbols-outlined">' + b.icon + '</span>' + unreadHTML + '<span class="gdot"></span></span>' +
+      '<span class="card-num">' + b.n + ' <span class="material-symbols-outlined">' + b.icon + '</span>' + acctBadge + unreadHTML + '<span class="gdot"></span></span>' +
     '</div>';
   }
   function chatHTML(b){
@@ -709,6 +746,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('hintLine').textContent = hintText();
     $('latestLine').textContent = activity.length ? activity[activity.length - 1].text : 'Business only — pick a browser number, or just type.';
     window.scrollTo(0, 0);
+    pollReplies();  /* fetch the newly shown project's replies with its own cursor (no-op while unconfigured) */
   }
 
   /* ---------- Add a browser ---------- */
@@ -732,6 +770,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('dSub').textContent = stateLabel(b) + ' · ' + fmtPct(b.pct);
     $('dLiveText').textContent = 'Live view — Browser ' + b.n;
     $('detailOverlay').classList.remove('hidden');
+    refreshLiveLink();  /* shows "Open live session" when a reply brought a link for this browser */
   }
   function closeDetail(){ $('detailOverlay').classList.add('hidden'); detailN = null; }
 
@@ -794,6 +833,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
         pushChat(n, 'me', label);
         if (openChatN !== n) bumpUnread(n, 'media', added);
       });
+      dests.forEach(function(n){
+        names.forEach(function(nm){ postToBackend(n, { kind: 'file', fileName: nm, account: accountLabelFor(n) }); });
+      });
       if (dests.length) renderCards();
     }
   }
@@ -839,6 +881,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     { act:'add',      icon:'add_circle',  label:'Add a browser' },
     { act:'request',  icon:'web',         label:'New browser' },
     { act:'newchat',  icon:'edit_square', label:'New chat' },
+    { act:'accounts', icon:'manage_accounts', label:'Google accounts' },
     { act:'library',  icon:'grid_view',   label:'Library' },
     { act:'images',   icon:'image',       label:'Images' },
     { act:'videos',   icon:'movie',       label:'Videos' },
@@ -856,6 +899,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     closeMenus();
     if (act === 'add'){ addBrowser(); }
     else if (act === 'request'){ openAddSheet(); }
+    else if (act === 'accounts'){ openAccounts(); }
     else if (act === 'dark'){ toggleTheme(); }
     else { doNav(act); }
   }
@@ -948,10 +992,180 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
     var vDest = deliverTargets();
     vDest.forEach(function(n){ pushChat(n, 'me', 'Voice note · ' + dur); });
-    logActivity('Voice note · ' + dur + ' — to ' + destsLabel(vDest) + '.');
+    logActivity('Voice note · ' + dur + ' — to ' + destsLabel(vDest) + acctSuffix(vDest) + '.');
     openFirstTargetChat(vDest);
     startLoadingFor(vDest);
+    vDest.forEach(function(n){ postToBackend(n, { kind: 'voice', durationSec: secs, account: accountLabelFor(n) }); });
     refreshHint();
+  }
+
+  /* ---------- Back end: real sends out, real replies in (only when configured) ---------- */
+  function backendOn(){ return !!BACKEND_URL; }
+  function setBackendStatus(text, cls){
+    var el = $('backendStatus');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'backend-pill' + (cls ? ' ' + cls : '');
+  }
+  function checkBackend(){
+    if (!backendOn()){ setBackendStatus('Back end: not connected', ''); return; }
+    fetch(BACKEND_URL + '/health')
+      .then(function(r){
+        if (!r.ok) throw new Error('health ' + r.status);
+        setBackendStatus('Back end: connected', 'ok');
+      })
+      .catch(function(){ setBackendStatus('Back end: unreachable', 'bad'); });
+  }
+  /* Fire-and-forget: the local landing never waits on the network. */
+  function postToBackend(n, payload){
+    if (!backendOn()) return;
+    var project = currentProject;
+    var body = { project: project, browser: n };
+    for (var k in payload) body[k] = payload[k];
+    fetch(BACKEND_URL + '/desk-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Desk-Key': BACKEND_KEY },
+      body: JSON.stringify(body)
+    }).then(function(r){
+      if (!r.ok) throw new Error('send ' + r.status);
+      if (project === currentProject) logActivity('Sent to back end — Browser ' + n);
+    }).catch(function(){
+      if (project === currentProject) logActivity('Back-end send failed — saved on this device only');
+    });
+  }
+  /* Latest live-session link per project+browser, from polled replies (this session only). */
+  var liveLinks = {};
+  function liveLinkKey(project, n){ return project + ':' + n; }
+  function refreshLiveLink(){
+    var a = $('dLiveLink');
+    if (!a) return;
+    var url = detailN != null ? liveLinks[liveLinkKey(currentProject, detailN)] : null;
+    if (url){ a.href = url; a.classList.remove('hidden'); }
+    else { a.removeAttribute('href'); a.classList.add('hidden'); }
+  }
+  /* Reply cursor: one number per project, persisted across visits. */
+  var REPLY_CURSOR_KEY = 'bd_reply_cursor_v1';
+  function replyCursor(project){
+    var all = store.get(REPLY_CURSOR_KEY);
+    return (all && typeof all[project] === 'number') ? all[project] : 0;
+  }
+  function saveReplyCursor(project, cur){
+    var all = store.get(REPLY_CURSOR_KEY) || {};
+    all[project] = cur;
+    store.set(REPLY_CURSOR_KEY, all);
+  }
+  function pollReplies(){
+    if (!backendOn() || document.hidden) return;
+    var project = currentProject;
+    var since = replyCursor(project);
+    fetch(BACKEND_URL + '/desk-replies?project=' + encodeURIComponent(project) + '&since=' + since)
+      .then(function(r){ if (!r.ok) throw new Error('poll ' + r.status); return r.json(); })
+      .then(function(data){
+        /* Switched project mid-flight: leave the cursor alone — these replies
+           will be fetched again when that project is current. */
+        if (project !== currentProject) return;
+        var replies = [];
+        if (Array.isArray(data)) replies = data;
+        else if (data && Array.isArray(data.replies)) replies = data.replies;
+        var cur = since, sawId = false;
+        replies.forEach(function(rep){
+          if (!rep) return;
+          if (typeof rep.browser === 'number'){
+            if (rep.url) liveLinks[liveLinkKey(project, rep.browser)] = String(rep.url);
+            if (rep.text) pushChat(rep.browser, 'him', String(rep.text));
+            if (detailN === rep.browser) refreshLiveLink();
+          }
+          if (typeof rep.id === 'number'){ sawId = true; if (rep.id > cur) cur = rep.id; }
+        });
+        if (data && typeof data.cursor === 'number' && data.cursor > cur) cur = data.cursor;
+        if (!sawId && !(data && typeof data.cursor === 'number') && replies.length) cur = since + replies.length;
+        if (cur !== since) saveReplyCursor(project, cur);
+      })
+      .catch(function(){ /* a failed poll is silent; the next one retries */ });
+  }
+
+  /* ---------- Google accounts: labels + per-project browser assignment (no logins here) ---------- */
+  var ACCOUNTS_KEY = 'bd_accounts_v1';
+  function accountsData(){
+    var d = store.get(ACCOUNTS_KEY);
+    if (!d || typeof d !== 'object' || Array.isArray(d)) d = {};
+    if (!Array.isArray(d.accounts)) d.accounts = [];
+    if (!d.assign || typeof d.assign !== 'object' || Array.isArray(d.assign)) d.assign = {};
+    return d;
+  }
+  function saveAccountsData(d){ store.set(ACCOUNTS_KEY, d); }
+  function assignedAccountId(project, n){
+    var pa = accountsData().assign[project];
+    return (pa && pa[n]) || '';
+  }
+  function accountLabelFor(n){
+    var id = assignedAccountId(currentProject, n);
+    if (!id) return '';
+    var found = accountsData().accounts.filter(function(a){ return a.id === id; })[0];
+    return found ? found.label : '';
+  }
+  function acctSuffix(dests){
+    var labels = [];
+    dests.forEach(function(n){
+      var l = accountLabelFor(n);
+      if (l && labels.indexOf(l) === -1) labels.push(l);
+    });
+    return labels.length ? ' · ' + labels.join(', ') : '';
+  }
+  function openAccounts(){ renderAccounts(); $('accountsOverlay').classList.remove('hidden'); }
+  function closeAccounts(){ $('accountsOverlay').classList.add('hidden'); }
+  function renderAccounts(){
+    var d = accountsData();
+    var list = $('acctList');
+    list.innerHTML = d.accounts.length ? d.accounts.map(function(a){
+      return '<div class="acct-row"><span class="acct-badge">' + esc(a.label.charAt(0).toUpperCase()) + '</span>' +
+        '<span class="acct-name">' + esc(a.label) + '</span>' +
+        '<button class="btn" type="button" data-acct-remove="' + esc(a.id) + '">Remove</button></div>';
+    }).join('') : '<div class="act-empty">No accounts yet — add one below.</div>';
+    list.querySelectorAll('[data-acct-remove]').forEach(function(btn){
+      btn.addEventListener('click', function(){ removeAccount(btn.getAttribute('data-acct-remove')); });
+    });
+    $('acctAssign').innerHTML = browsers.map(function(b){
+      var cur = assignedAccountId(currentProject, b.n);
+      var opts = '<option value="">No account</option>' + d.accounts.map(function(a){
+        return '<option value="' + esc(a.id) + '"' + (a.id === cur ? ' selected' : '') + '>' + esc(a.label) + '</option>';
+      }).join('');
+      return '<div class="acct-row"><span class="acct-name">Browser ' + b.n + '</span>' +
+        '<select data-acct-assign="' + b.n + '" aria-label="Account for Browser ' + b.n + '">' + opts + '</select></div>';
+    }).join('');
+    $('acctAssign').querySelectorAll('[data-acct-assign]').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        assignAccount(parseInt(sel.getAttribute('data-acct-assign'), 10), sel.value);
+      });
+    });
+  }
+  function addAccount(){
+    var inp = $('acctInput');
+    var label = inp.value.trim();
+    if (!label) return;
+    var d = accountsData();
+    d.accounts.push({ id: 'a' + Date.now().toString(36) + Math.floor(Math.random() * 100000), label: label });
+    saveAccountsData(d);
+    inp.value = '';
+    renderAccounts();
+  }
+  function removeAccount(id){
+    var d = accountsData();
+    d.accounts = d.accounts.filter(function(a){ return a.id !== id; });
+    Object.keys(d.assign).forEach(function(pk){
+      Object.keys(d.assign[pk]).forEach(function(n){ if (d.assign[pk][n] === id) delete d.assign[pk][n]; });
+    });
+    saveAccountsData(d);
+    renderAccounts();
+    renderCards();
+  }
+  function assignAccount(n, accountId){
+    var d = accountsData();
+    if (!d.assign[currentProject]) d.assign[currentProject] = {};
+    if (accountId) d.assign[currentProject][n] = accountId;
+    else delete d.assign[currentProject][n];
+    saveAccountsData(d);
+    renderCards();
   }
 
   /* ---------- Loading: the percentage is a send filling until the reply lands ---------- */
@@ -983,7 +1197,8 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (b._timer){ clearInterval(b._timer); b._timer = null; }
     b.loading = false; b.pct = 0;
     if (browsers.indexOf(b) === -1){ renderCards(); refreshHint(); return; }  /* page switched mid-load: the reply is dropped, never lands in another project */
-    pushChat(b.n, 'him', REPLIES[replyCount++ % REPLIES.length]);
+    /* Connected: no canned reply — real replies arrive through pollReplies(). */
+    if (!backendOn()) pushChat(b.n, 'him', REPLIES[replyCount++ % REPLIES.length]);
     if (detailN === b.n) openDetail(b.n);
     renderCards();
     refreshHint();   /* this browser is free again — the Auto target may have moved back */
@@ -999,9 +1214,10 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (!text) return;
     var dests = deliverTargets();
     dests.forEach(function(n){ pushChat(n, 'me', text); });
-    logActivity('To ' + destsLabel(dests) + ': “' + text + '”');
+    logActivity('To ' + destsLabel(dests) + ': “' + text + '”' + acctSuffix(dests));
     openFirstTargetChat(dests);
     startLoadingFor(dests);
+    dests.forEach(function(n){ postToBackend(n, { kind: 'text', text: text, account: accountLabelFor(n) }); });
     inp.value = '';
     blip(1319, 0.07, 0.035);
     refreshHint();
@@ -1026,6 +1242,13 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('hintLine').textContent = hintText();
     if (activity.length) $('latestLine').textContent = activity[activity.length - 1].text;
 
+    /* Back end: status pill + reply polling (no fetch at all while unconfigured). */
+    checkBackend();
+    if (backendOn()){
+      pollReplies();
+      setInterval(pollReplies, 20000);
+    }
+
     $('enterBtn').addEventListener('click', function(){
       $('lockScreen').classList.add('hidden');
       document.body.classList.remove('locked');
@@ -1038,6 +1261,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       if (detailN == null) return;
       logActivity('Take over sent to Browser ' + detailN + '.');
       pushChat(detailN, 'him', 'Take over confirmed for Browser ' + detailN + '.');
+      postToBackend(detailN, { kind: 'takeover', text: 'Take over requested' });
       toast('Take over sent to Browser ' + detailN);
       closeDetail();
     });
@@ -1045,9 +1269,16 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       if (detailN == null) return;
       logActivity('Post sent to Browser ' + detailN + '.');
       pushChat(detailN, 'him', 'Post received by Browser ' + detailN + '.');
+      postToBackend(detailN, { kind: 'post', text: 'Post' });
       toast('Posted to Browser ' + detailN);
       closeDetail();
     });
+
+    /* Accounts sheet */
+    $('acctAddBtn').addEventListener('click', addAccount);
+    $('acctInput').addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); addAccount(); } });
+    $('acctClose').addEventListener('click', closeAccounts);
+    $('accountsOverlay').addEventListener('click', function(e){ if (e.target === this) closeAccounts(); });
 
     /* Add / request sheet */
     $('addCancel').addEventListener('click', closeAddSheet);
