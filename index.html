@@ -227,6 +227,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .sheet .sub{color:var(--mut); font-size:14px; margin:0 0 14px;}
   .live-view{flex:1; min-height:220px; border-radius:16px; background:var(--liveview); border:1px solid var(--line); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--mut); text-align:center; padding:20px;}
   .live-view .material-symbols-outlined{font-size:52px;}
+  .take-status{margin-top:6px; font-size:13px; font-weight:600; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:6px 14px; max-width:100%;}
   .sheet-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
   .btn{padding:11px 22px; border-radius:999px; font-size:15px; font-weight:500; border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);}
   .btn.primary{background:var(--blue); border-color:var(--blue); color:#fff;}
@@ -350,6 +351,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     <div class="live-view">
       <span class="material-symbols-outlined">monitor</span>
       <div id="dLiveText">Live view — Browser 1</div>
+      <div id="dTakeStatus" class="take-status hidden"></div>
       <div style="font-size:12.5px;">A plain placeholder area. No people, ever.</div>
       <div style="font-size:12.5px;">Live view stays clean — no images of people.</div>
     </div>
@@ -782,6 +784,23 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     return b;
   }
 
+  /* ---------- Take over status line ---------- */
+  var takePending = {}, takeLive = {}, takeClosed = {};
+  function takeKey(n){ return currentProject + '|' + n; }
+  function setTakeStatus(txt){
+    var el = $('dTakeStatus'); if (!el) return;
+    if (txt){ el.textContent = txt; el.classList.remove('hidden'); }
+    else { el.textContent = ''; el.classList.add('hidden'); }
+  }
+  function refreshTakeStatus(){
+    if (detailN == null) return;
+    var k = takeKey(detailN);
+    if (takeLive[k]) setTakeStatus('Session live — tap "Open live session" below to take over.');
+    else if (takePending[k]) setTakeStatus('Sent — waiting for Muse…');
+    else if (takeClosed[k]) setTakeStatus('Session closed — tap Take over to start a new one.');
+    else setTakeStatus('Tap Take over and Muse gets it right away — the status shows here.');
+  }
+
   /* ---------- Detail sheet ---------- */
   function openDetail(n){
     var b = browsers.filter(function(x){ return x.n === n; })[0];
@@ -792,8 +811,15 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('dLiveText').textContent = 'Live view — Browser ' + b.n;
     $('detailOverlay').classList.remove('hidden');
     refreshLiveLink();  /* shows "Open live session" when a reply brought a link for this browser */
+    refreshTakeStatus();
   }
-  function closeDetail(){ $('detailOverlay').classList.add('hidden'); detailN = null; }
+  function closeDetail(){
+    if (detailN != null){
+      var k = takeKey(detailN);
+      if (takeLive[k]){ takeLive[k] = false; takeClosed[k] = true; }
+    }
+    $('detailOverlay').classList.add('hidden'); detailN = null;
+  }
 
   /* ---------- Request sheet ---------- */
   function buildRequestOptions(){
@@ -1173,6 +1199,11 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
             if (rep.url) liveLinks[liveLinkKey(project, rep.browser)] = String(rep.url);
             if (rep.text) pushChat(rep.browser, 'him', String(rep.text));
             if (detailN === rep.browser) refreshLiveLink();
+            var tk = project + '|' + rep.browser;
+            if (takePending[tk]){
+              if (rep.url){ takeLive[tk] = true; takePending[tk] = false; if (detailN === rep.browser) refreshTakeStatus(); }
+              else if (rep.text){ takePending[tk] = false; if (detailN === rep.browser) setTakeStatus('Muse received it — the reply is in this browser\'s chat.'); }
+            }
           }
           if (typeof rep.id === 'number'){ sawId = true; if (rep.id > cur) cur = rep.id; }
         });
@@ -1477,10 +1508,12 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('dTakeOver').addEventListener('click', function(){
       if (detailN == null) return;
       logActivity('Take over sent to Browser ' + detailN + '.');
-      pushChat(detailN, 'him', 'Take over confirmed for Browser ' + detailN + '.');
       postToBackend(detailN, { kind: 'takeover', text: 'Take over requested' });
+      var k = takeKey(detailN);
+      takePending[k] = true; takeClosed[k] = false;
+      setTakeStatus('Sent — waiting for Muse…');
       toast('Take over sent to Browser ' + detailN);
-      closeDetail();
+      /* The view stays open so the status line can update here. */
     });
     $('dPost').addEventListener('click', function(){
       if (detailN == null) return;
