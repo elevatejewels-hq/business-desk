@@ -599,7 +599,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   function renderActivity(){
     var list = $('activityList');
     if (!activity.length){
-      list.innerHTML = '<div class="act-empty">Nothing yet. Messages, requests and voice notes will collect here.</div>';
+      list.innerHTML = '<div class="act-empty">Nothing yet. Messages and requests will collect here.</div>';
       return;
     }
     list.innerHTML = activity.slice().reverse().map(function(a){
@@ -950,8 +950,8 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     } catch(e){}
   }
 
-  /* ---------- Mic: press and hold ---------- */
-  var micStart = 0, micHeld = false;
+  /* ---------- Mic: hold to dictate (speech -> words -> auto-send) ---------- */
+  var micHeld = false;
   var waveTimer = null;
   function waveStart(){
     var w = $('wave');
@@ -983,14 +983,74 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var w = $('wave');
     if (w) w.classList.add('hidden');
   }
+  /* Dictation state: one session per mic hold. The recognition object is
+     created lazily on the first press, and only when the browser has one. */
+  var recog = null;
+  var dictSeq = 0, dictDone = true, dictLive = false, dictRunning = false;
+  var dictFinal = '', dictError = null, dictWrote = false;
   function micDown(e){
     e.preventDefault();
     if (micHeld) return;
-    micHeld = true; micStart = Date.now();
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR){ toast("Dictation isn't available in this browser — please type instead"); return; }
+    micHeld = true;
+    dictSeq++;
+    dictDone = false; dictLive = true; dictRunning = false;
+    dictFinal = ''; dictError = null; dictWrote = false;
     $('micBtn').classList.add('listening');
     $('msgInput').setAttribute('placeholder', 'Listening…');
     waveStart();
     blip(1175, 0.09, 0.05);
+    startDictation(SR, dictSeq);
+  }
+  function startDictation(SR, seq){
+    if (!recog){
+      recog = new SR();
+      recog.lang = 'en-US';
+      recog.continuous = true;
+      recog.interimResults = true;
+    }
+    recog.onresult = function(ev){
+      if (seq !== dictSeq || !dictLive) return;
+      var interim = '';
+      for (var i = ev.resultIndex || 0; i < ev.results.length; i++){
+        var r = ev.results[i];
+        if (r.isFinal) dictFinal += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      var shown = (dictFinal + interim).trim();
+      if (shown){ $('msgInput').value = shown; dictWrote = true; }
+    };
+    recog.onerror = function(ev){
+      if (seq !== dictSeq) return;
+      dictError = (ev && ev.error) || 'unknown';
+      finishDictation(seq);
+    };
+    recog.onend = function(){ finishDictation(seq); };
+    try { recog.start(); dictRunning = true; }
+    catch(err){ dictError = 'start'; finishDictation(seq); }
+  }
+  function finishDictation(seq){
+    if (seq !== dictSeq || dictDone) return;
+    dictDone = true; dictLive = false; dictRunning = false;
+    micHeld = false;
+    $('micBtn').classList.remove('listening');
+    waveStop();
+    var inp = $('msgInput');
+    inp.setAttribute('placeholder', 'Type a message...');
+    var err = dictError;
+    if (err === 'aborted') err = null;
+    if (err === 'not-allowed' || err === 'service-not-allowed'){
+      toast('Microphone is blocked — allow the mic for this site in the browser settings.');
+    } else if (err && err !== 'no-speech'){
+      toast('Dictation stopped — please try again.');
+    } else {
+      var words = dictFinal.trim();
+      if (words) deliverText(words);
+      else toast("Didn't catch that — hold the mic and speak, or type.");
+    }
+    if (dictWrote){ inp.value = ''; dictWrote = false; }
+    dictFinal = ''; dictError = null;
   }
   function micUp(){
     if (!micHeld) return;
@@ -999,15 +1059,15 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     waveStop();
     $('msgInput').setAttribute('placeholder', 'Type a message...');
     blip(784, 0.11, 0.05);
-    var secs = Math.max(0, Math.round((Date.now() - micStart) / 1000));
-    var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
-    var vDest = deliverTargets();
-    vDest.forEach(function(n){ pushChat(n, 'me', 'Voice note · ' + dur); });
-    logActivity('Voice note · ' + dur + ' — to ' + destsLabel(vDest) + acctSuffix(vDest) + '.');
-    openFirstTargetChat(vDest);
-    startLoadingFor(vDest);
-    vDest.forEach(function(n){ postToBackend(n, { kind: 'voice', durationSec: secs, account: accountLabelFor(n) }); });
-    refreshHint();
+    var seq = dictSeq;
+    if (recog && dictRunning){
+      try { recog.stop(); } catch(e){}
+      /* The 'end' event normally lands right after stop(); this timer
+         is only a safety net so a hold can never get stuck. */
+      setTimeout(function(){ finishDictation(seq); }, 400);
+    } else {
+      finishDictation(seq);
+    }
   }
 
   /* ---------- Back end: real sends out, real replies in (only when configured) ---------- */
@@ -1316,20 +1376,23 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     dests.forEach(function(n){ var b = findBrowser(n); if (b) startLoading(b); });
   }
 
-  /* ---------- Send message ---------- */
-  function sendMessage(){
-    var inp = $('msgInput');
-    var text = inp.value.trim();
-    if (!text) return;
+  /* ---------- Send message (typed and dictated share this one path) ---------- */
+  function deliverText(text){
     var dests = deliverTargets();
     dests.forEach(function(n){ pushChat(n, 'me', text); });
     logActivity('To ' + destsLabel(dests) + ': “' + text + '”' + acctSuffix(dests));
     openFirstTargetChat(dests);
     startLoadingFor(dests);
     dests.forEach(function(n){ postToBackend(n, { kind: 'text', text: text, account: accountLabelFor(n) }); });
+    refreshHint();
+  }
+  function sendMessage(){
+    var inp = $('msgInput');
+    var text = inp.value.trim();
+    if (!text) return;
+    deliverText(text);
     inp.value = '';
     blip(1319, 0.07, 0.035);
-    refreshHint();
   }
 
   /* ---------- Enter the Desk (the one path the Enter button uses) ---------- */
