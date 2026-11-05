@@ -150,6 +150,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .chat-top{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
   .chat-title{font-size:12px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--mut);}
   .chat-takeover{border:1px solid var(--blue); color:var(--blue); background:var(--surface); border-radius:999px; padding:4px 14px; font-size:12.5px; font-weight:500;}
+  .chat-library{display:inline-flex; align-items:center; gap:4px; margin-left:auto; border:1px solid var(--line); color:var(--ink-soft); background:var(--surface); border-radius:999px; padding:4px 12px; font-size:12.5px; font-weight:500; white-space:nowrap;}
+  .chat-library .material-symbols-outlined{font-size:15px;}
+  .chat-library:active{transform:scale(.96);}
   .chat-msgs{display:flex; flex-direction:column; gap:8px; max-height:264px; overflow-y:auto; padding:2px;}
   .msg{max-width:88%; display:flex; flex-direction:column; gap:2px;}
   .msg .who{font-size:10.5px; color:var(--mut); letter-spacing:.04em;}
@@ -354,6 +357,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       <a class="btn hidden" id="dLiveLink" href="#" target="_blank" rel="noopener">Open live session</a>
       <button class="btn primary big" id="dTakeOver" type="button">Take over</button>
       <button class="btn" id="dPost" type="button">Post</button>
+      <button class="btn" id="dLibrary" type="button">Library</button>
       <button class="btn" id="dClose" type="button">Close</button>
     </div>
   </div>
@@ -419,7 +423,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 
   /* ---------- Back-end connection (empty = not connected yet) ---------- */
   var BACKEND_URL = 'https://business-desk-relay.onrender.com';
-  var BACKEND_KEY = 'bdp_e1455f285ca38b7bfb77d484d3ea0730';
+  var BACKEND_KEY = 'bdp_b7af2c27d30917df50f11c98bb98aa5a';
 
   /* ---------- Google sign-in (empty client ID = not set up yet) ---------- */
   var GOOGLE_CLIENT_ID = '654104407813-go3usvamcqgivo6d7vea7lgkono5ic4b.apps.googleusercontent.com';
@@ -644,6 +648,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (!msgs) msgs = '<div class="chat-empty">No messages yet — this chat starts empty.</div>';
     return '<div class="card-chat">' +
       '<div class="chat-top"><span class="chat-title">Browser ' + b.n + ' chat</span>' +
+      '<button class="chat-library" type="button" data-library="' + b.n + '"><span class="material-symbols-outlined">photo_library</span>Library</button>' +
       '<button class="chat-takeover" type="button" data-takeover="' + b.n + '">Take over</button></div>' +
       '<div class="chat-msgs" data-msgs="' + b.n + '">' + msgs + '</div></div>';
   }
@@ -680,6 +685,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
       el.addEventListener('click', function(e){
         if (e.target.closest('[data-live]')){ openDetail(b.n); return; }
         if (e.target.closest('[data-open]')){ toggleChat(b.n); return; }
+        if (e.target.closest('[data-library]')){ openLibrary('all'); return; }
         if (e.target.closest('[data-takeover]')){ openDetail(b.n); return; }
         if (openChatN !== null && openChatN !== b.n) closeChat();
       });
@@ -1151,7 +1157,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     if (!backendOn() || document.hidden) return;
     var project = currentProject;
     var since = replyCursor(project);
-    fetch(BACKEND_URL + '/desk-replies?project=' + encodeURIComponent(project) + '&since=' + since)
+    fetch(BACKEND_URL + '/desk-replies?project=' + encodeURIComponent(project) + '&since=' + since, { headers: { 'X-Desk-Key': BACKEND_KEY } })
       .then(function(r){ if (!r.ok) throw new Error('poll ' + r.status); return r.json(); })
       .then(function(data){
         /* Switched project mid-flight: leave the cursor alone — these replies
@@ -1466,6 +1472,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
 
     /* Detail sheet */
     $('dClose').addEventListener('click', closeDetail);
+    $('dLibrary').addEventListener('click', function(){ closeDetail(); openLibrary('all'); });
     $('detailOverlay').addEventListener('click', function(e){ if (e.target === this) closeDetail(); });
     $('dTakeOver').addEventListener('click', function(){
       if (detailN == null) return;
