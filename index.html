@@ -109,6 +109,25 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   .card-num .gdot{display:none; width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px rgba(47,211,95,.8);}
   html[data-theme="dark"] .card-num .gdot{display:inline-block;}
 
+  /* ---------- In-card chat ---------- */
+  .card.chat-open{background:#e8f0fe;}
+  html[data-theme="dark"] .card.chat-open{background:linear-gradient(#101d42,#101d42) padding-box, linear-gradient(135deg,#22d3ee,#34a853 55%,#a855f7) border-box;}
+  .card.chat-open .open-btn{color:var(--mut);}
+  .card.chat-open .open-btn:hover{background:rgba(127,140,160,.15);}
+  html[data-theme="dark"] .card.chat-open .open-btn{color:#8f9cc0; border-color:#46598c;}
+  .card-chat{margin-top:12px; border-top:1px solid var(--line); padding-top:10px;}
+  .chat-top{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
+  .chat-title{font-size:12px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--mut);}
+  .chat-takeover{border:1px solid var(--blue); color:var(--blue); background:var(--surface); border-radius:999px; padding:4px 14px; font-size:12.5px; font-weight:500;}
+  .chat-msgs{display:flex; flex-direction:column; gap:8px; max-height:264px; overflow-y:auto; padding:2px;}
+  .msg{max-width:88%; display:flex; flex-direction:column; gap:2px;}
+  .msg .who{font-size:10.5px; color:var(--mut); letter-spacing:.04em;}
+  .msg.me{align-self:flex-end; align-items:flex-end;}
+  .msg.him{align-self:flex-start; align-items:flex-start;}
+  .bubble{font-size:13.5px; line-height:1.4; padding:7px 11px; border-radius:14px; word-break:break-word; text-align:left;}
+  .msg.me .bubble{background:var(--blue-soft); color:var(--ink); border-bottom-right-radius:4px;}
+  .msg.him .bubble{background:var(--surface); border:1px solid var(--line); color:var(--ink); border-bottom-left-radius:4px;}
+
   /* ---------- Library ---------- */
   .lib-head{display:flex; align-items:center; gap:10px; margin:6px 0 12px;}
   .lib-head h2{font-size:19px; font-weight:500; margin:0;}
@@ -363,6 +382,12 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
   var libItems = [];           /* session only: {url, kind, name} */
   var libTab = 'all';
   var detailN = null;
+  var openChatN = null;        /* browser n whose in-card chat is open, or null */
+  var chats = store.get('bd_chats_v1');
+  if (!chats || typeof chats !== 'object' || Array.isArray(chats)) chats = {};
+  function seedChatEntry(b){ return { who:'him', text:'Browser ' + b.n + ' — ' + b.state + ' · ' + fmtPct(b.pct) + '%.', when: nowTime() }; }
+  browsers.forEach(function(b){ if (!Array.isArray(chats[b.n])) chats[b.n] = [ seedChatEntry(b) ]; });
+  store.set('bd_chats_v1', chats);
 
   /* ---------- Helpers ---------- */
   function $(id){ return document.getElementById(id); }
@@ -374,6 +399,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2300);
   }
   function saveBrowsers(){ store.set('bd_browsers_v1', browsers); }
+  function saveChats(){ store.set('bd_chats_v1', chats); }
   function saveActivity(){ store.set('bd_activity_v1', activity.slice(-120)); }
   function selectedList(){ return browsers.filter(function(b){ return selected[b.n]; }).map(function(b){ return b.n; }); }
   function targetLabel(){
@@ -414,24 +440,61 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     '<div class="state-word">' + esc(b.state) + '</div>' +
     '<div class="track"><div class="fill" style="width:' + Math.min(100, Math.max(0, b.pct)) + '%"></div>' +
     '<div class="knob" style="left:' + Math.min(100, Math.max(0, b.pct)) + '%"></div></div>' +
+    chatHTML(b) +
     '<div class="card-foot">' +
       '<button class="open-btn" type="button" data-open="' + b.n + '">Open</button>' +
       '<span class="card-num">' + b.n + ' <span class="material-symbols-outlined">' + b.icon + '</span><span class="gdot"></span></span>' +
     '</div>';
+  }
+  function chatHTML(b){
+    if (openChatN !== b.n) return '';
+    var msgs = (chats[b.n] || []).map(function(m){
+      return '<div class="msg ' + (m.who === 'me' ? 'me' : 'him') + '">' +
+        '<span class="who">' + (m.who === 'me' ? 'from me' : 'from him') + '</span>' +
+        '<span class="bubble">' + esc(m.text) + '</span></div>';
+    }).join('');
+    if (!msgs) msgs = '<div class="msg him"><span class="who">from him</span><span class="bubble">No messages yet for Browser ' + b.n + '.</span></div>';
+    return '<div class="card-chat">' +
+      '<div class="chat-top"><span class="chat-title">Browser ' + b.n + ' chat</span>' +
+      '<button class="chat-takeover" type="button" data-takeover="' + b.n + '">Take over</button></div>' +
+      '<div class="chat-msgs" data-msgs="' + b.n + '">' + msgs + '</div></div>';
+  }
+  function pushChat(n, who, text){
+    if (!Array.isArray(chats[n])) chats[n] = [];
+    chats[n].push({ who: who, text: text, when: nowTime() });
+    if (chats[n].length > 200) chats[n] = chats[n].slice(-200);
+    saveChats();
+    if (openChatN === n) renderCards();
+  }
+  function toggleChat(n){
+    if (openChatN === n){ closeChat(); return; }
+    openChatN = n;
+    renderCards();
+  }
+  function closeChat(){
+    if (openChatN === null) return;
+    openChatN = null;
+    renderCards();
   }
   function renderCards(){
     var grid = $('cardsGrid');
     grid.innerHTML = '';
     browsers.forEach(function(b){
       var el = document.createElement('article');
-      el.className = 'card' + (selected[b.n] ? ' selected' : '');
+      el.className = 'card' + (selected[b.n] ? ' selected' : '') + (openChatN === b.n ? ' chat-open' : '');
       el.setAttribute('data-n', b.n);
       el.innerHTML = cardHTML(b);
       el.addEventListener('click', function(e){
-        if (e.target.closest('[data-open]') || e.target === el || true) openDetail(b.n);
+        if (e.target.closest('[data-open]')){ toggleChat(b.n); return; }
+        if (e.target.closest('[data-takeover]')){ openDetail(b.n); return; }
+        if (openChatN !== null && openChatN !== b.n) closeChat();
       });
       grid.appendChild(el);
     });
+    if (openChatN !== null){
+      var ms = grid.querySelector('[data-msgs="' + openChatN + '"]');
+      if (ms) ms.scrollTop = ms.scrollHeight;
+    }
   }
 
   /* ---------- Chips ---------- */
@@ -468,6 +531,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     wrap.appendChild(plus);
   }
   function syncSelection(){
+    openChatN = null;
     renderChips(); renderCards();
     var s = selectedList();
     $('hintLine').textContent = s.length ? ('Sending to: ' + targetLabel()) : 'No number picked — Auto: first live browser';
@@ -478,6 +542,7 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var next = browsers.reduce(function(m, b){ return Math.max(m, b.n); }, 0) + 1;
     var b = { n: next, pct: 0, state: 'Empty', icon: ICONS[(next - 1) % ICONS.length] };
     browsers.push(b); saveBrowsers();
+    chats[next] = [ seedChatEntry(b) ]; saveChats();
     renderCards(); renderChips(); buildRequestOptions();
     logActivity('Browser ' + next + ' added — Empty, ready when you are.');
     toast('Browser ' + next + ' added');
@@ -664,7 +729,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     blip(784, 0.11, 0.05);
     var secs = Math.max(0, Math.round((Date.now() - micStart) / 1000));
     var dur = Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
-    logActivity('Voice note · ' + dur + ' — to ' + targetLabel() + '.');
+    var vDest = openChatN !== null ? [openChatN] : selectedList();
+    vDest.forEach(function(n){ pushChat(n, 'him', 'Voice note · ' + dur); });
+    logActivity('Voice note · ' + dur + ' — to ' + (openChatN !== null ? 'Browser ' + openChatN : targetLabel()) + '.');
   }
 
   /* ---------- Send message ---------- */
@@ -672,7 +739,9 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     var inp = $('msgInput');
     var text = inp.value.trim();
     if (!text) return;
-    logActivity('To ' + targetLabel() + ': “' + text + '”');
+    var dests = openChatN !== null ? [openChatN] : selectedList();
+    dests.forEach(function(n){ pushChat(n, 'me', text); });
+    logActivity('To ' + (openChatN !== null ? 'Browser ' + openChatN : targetLabel()) + ': “' + text + '”');
     inp.value = '';
     blip(1319, 0.07, 0.035);
   }
@@ -704,12 +773,14 @@ try { var t = localStorage.getItem('bd_theme_v1'); if (t === 'dark' || t === 'li
     $('dTakeOver').addEventListener('click', function(){
       if (detailN == null) return;
       logActivity('Take over sent to Browser ' + detailN + '.');
+      pushChat(detailN, 'him', 'Take over confirmed for Browser ' + detailN + '.');
       toast('Take over sent to Browser ' + detailN);
       closeDetail();
     });
     $('dPost').addEventListener('click', function(){
       if (detailN == null) return;
       logActivity('Post sent to Browser ' + detailN + '.');
+      pushChat(detailN, 'him', 'Post received by Browser ' + detailN + '.');
       toast('Posted to Browser ' + detailN);
       closeDetail();
     });
